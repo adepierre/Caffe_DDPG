@@ -1,4 +1,4 @@
-# Caffe_DDPG: A Caffe/C++ implementation of [Deep Deterministic Gradient Policy](https://arxiv.org/pdf/1509.02971.pdf) algorithm
+# Caffe_DDPG: A Caffe/C++ implementation of [Deep Deterministic Policy Gradient](https://arxiv.org/pdf/1509.02971.pdf) algorithm
 
 There are a lot of implementation of DDPG with Tensorflow and Python, but I couldn't find any with Caffe. So here a DDPG on the continuous mountain car example using Caffe.
 
