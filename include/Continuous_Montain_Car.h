@@ -52,7 +52,6 @@ private:
 	std::vector<float> state;
 
 	std::mt19937 random_gen;
-
 	bool display;
 	int frame_speed;
 };

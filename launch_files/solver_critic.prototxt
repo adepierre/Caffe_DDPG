@@ -1,0 +1,11 @@
+net: "net_critic.prototxt"
+type: "Adam"
+momentum: 0.9
+base_lr: 0.001
+lr_policy: "fixed"
+
+display: 100
+max_iter: 500000
+
+snapshot: 50000
+snapshot_prefix: "Mountain_Car_Critic"

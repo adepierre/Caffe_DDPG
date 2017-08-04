@@ -5,97 +5,102 @@
 #include <numeric>
 #include <random>
 
-NN_Agent::NN_Agent(const std::string &solver_,
-				   const float &tau_,
-				   const float &gamma_):
+NN_Agent::NN_Agent(const std::string &solver_actor_,
+				   const std::string & solver_critic_, 
+				   const float & tau_, 
+				   const float & gamma_):
 			update_rate(tau_),
 			gamma(gamma_)
 {
 	//Create caffe objects (solver + net)
-	caffe::SolverParameter solver_param;
-	caffe::ReadProtoFromTextFileOrDie(solver_, &solver_param);
+	caffe::SolverParameter solver_param_actor;
+	caffe::ReadProtoFromTextFileOrDie(solver_actor_, &solver_param_actor);
 
-	solver.reset(caffe::SolverRegistry<float>::CreateSolver(solver_param));
+	solver_actor.reset(caffe::SolverRegistry<float>::CreateSolver(solver_param_actor));
 
-	net = solver->net();
+	net_actor = solver_actor->net();
 
-	caffe::NetParameter net_param;
+	caffe::SolverParameter solver_param_critic;
+	caffe::ReadProtoFromTextFileOrDie(solver_critic_, &solver_param_critic);
 
-	net->ToProto(&net_param);
+	solver_critic.reset(caffe::SolverRegistry<float>::CreateSolver(solver_param_critic));
 
-	net_param.mutable_state()->set_phase(caffe::Phase::TEST);
+	net_critic = solver_critic->net();
 
-	target_net.reset(new caffe::Net<float>(net_param));
-	
-	target_net->CopyTrainedLayersFrom(net_param);
+
+	caffe::NetParameter net_param_actor;
+	net_actor->ToProto(&net_param_actor);
+
+	net_param_actor.mutable_state()->set_phase(caffe::Phase::TEST);
+
+	target_net_actor.reset(new caffe::Net<float>(net_param_actor));
+
+	target_net_actor->CopyTrainedLayersFrom(net_param_actor);
+
+	caffe::NetParameter net_param_critic;
+	net_critic->ToProto(&net_param_critic);
+
+	net_param_critic.mutable_state()->set_phase(caffe::Phase::TEST);
+
+	target_net_critic.reset(new caffe::Net<float>(net_param_critic));
+
+	target_net_critic->CopyTrainedLayersFrom(net_param_critic);
 
 	//Save input and output blobs to find them easily later
-	blob_state = net->blob_by_name("state");
-	blob_action = net->blob_by_name("action");
-	blob_q = net->blob_by_name("q_values");
-	blob_label_q = net->blob_by_name("q_label");
+	blob_state_actor = net_actor->blob_by_name("state");
+	blob_state_critic = net_critic->blob_by_name("state");
+	blob_action_actor = net_actor->blob_by_name("action");
+	blob_action_critic = net_critic->blob_by_name("action");
+	blob_q = net_critic->blob_by_name("q_values");
+	blob_label_q = net_critic->blob_by_name("q_label");
 
-	target_blob_state = target_net->blob_by_name("state");
-	target_blob_action = target_net->blob_by_name("action");
-	target_blob_q = target_net->blob_by_name("q_values");
-
-	//Find the index of the last layer of the actor part of the net
-	last_layer_actor = -1;
-	for (size_t i = 0; i < net->layer_names().size(); i++)
-	{
-		if (net->layer_names()[i].compare("ActionLayer") == 0)
-		{
-			last_layer_actor = i;
-			break;
-		}
-	}
-	
-	if (last_layer_actor == -1)
-	{
-		std::cerr << "Warning: No layer with name \"ActionLayer\" found. Make sure the layer which has the action blob as output is named ActionLayer." << std::endl;
-	}
+	target_blob_state_actor = target_net_actor->blob_by_name("state");
+	target_blob_action_actor = target_net_actor->blob_by_name("action");
+	target_blob_state_critic = target_net_critic->blob_by_name("state");
+	target_blob_action_critic = target_net_critic->blob_by_name("action");
+	target_blob_q = target_net_critic->blob_by_name("q_values");
 }
 
-NN_Agent::NN_Agent(const std::string &model_file, 
-				   const std::string &trained_file)
+NN_Agent::NN_Agent(const std::string &model_file_actor, 
+				   const std::string &model_file_critic,
+				   const std::string &trained_file_actor,
+				   const std::string &trained_file_critic)
 {
-	net.reset(new caffe::Net<float>(model_file, caffe::TEST));
-	
-	if (!trained_file.empty())
-	{
-		net->CopyTrainedLayersFrom(trained_file);
-	}
-	
-	blob_state = net->blob_by_name("state");
-	blob_action = net->blob_by_name("action");
-	blob_q = net->blob_by_name("q_values");
+	net_actor.reset(new caffe::Net<float>(model_file_actor, caffe::TEST));
 
-	//Find the index of the last layer of the actor part of the net
-	last_layer_actor = -1;
-	for (size_t i = 0; i < net->layer_names().size(); i++)
+	if (!trained_file_actor.empty())
 	{
-		if (net->layer_names()[i].compare("ActionLayer") == 0)
-		{
-			last_layer_actor = i;
-			break;
-		}
+		net_actor->CopyTrainedLayersFrom(trained_file_actor);
 	}
 
-	if (last_layer_actor == -1)
+	net_critic.reset(new caffe::Net<float>(model_file_critic, caffe::TEST));
+
+	if (!trained_file_critic.empty())
 	{
-		std::cerr << "Warning: No layer with name \"ActionLayer\" found. Make sure the layer which has the action blob as output is named ActionLayer." << std::endl;
+		net_critic->CopyTrainedLayersFrom(trained_file_critic);
 	}
+
+	blob_state_actor = net_actor->blob_by_name("state");
+	blob_action_actor = net_actor->blob_by_name("action");
+	blob_state_critic = net_critic->blob_by_name("state");
+	blob_action_critic = net_critic->blob_by_name("action");
+	blob_q = net_critic->blob_by_name("q_values");
 }
 
 NN_Agent::~NN_Agent()
 {
-	if (solver)
+	if (solver_actor)
 	{
-		solver->Snapshot();
+		solver_actor->Snapshot();
+	}
+
+	if (solver_critic)
+	{
+		solver_critic->Snapshot();
 	}
 }
 
-void NN_Agent::Train(const std::vector<std::vector<float>> &states, const std::vector<std::vector<float>> &actions, const std::vector<float> &rewards, const std::vector<bool> &terminals, const std::vector<std::vector<float>> &states_after)
+void NN_Agent::Train(const std::vector<std::vector<float> > &states, const std::vector<std::vector<float> > &actions, const std::vector<float> &rewards, const std::vector<bool> &terminals, const std::vector<std::vector<float>> &states_after)
 {
 	std::vector<float> target_q = PredictCritic(states_after, PredictActor(states_after, true), true);
 
@@ -126,24 +131,32 @@ void NN_Agent::Train(const std::vector<std::vector<float>> &states, const std::v
 	
 	TrainActor(states, grads);
 
-	solver->iter_++;
-
-	if (solver->iter() % 100 == 0)
+	if (solver_actor->iter() % 100 == 0)
 	{
 		float norm = 0;
 		int param_number = 0;
-		for (size_t i = 0; i < net->learnable_params().size(); i++)
+		for (size_t i = 0; i < net_actor->learnable_params().size(); i++)
 		{
-			for (size_t j = 0; j < net->learnable_params()[i]->count(); j++)
+			for (size_t j = 0; j < net_actor->learnable_params()[i]->count(); j++)
 			{
-				float data = net->learnable_params()[i]->cpu_data()[0];
+				float data = net_actor->learnable_params()[i]->cpu_data()[j];
+				norm += data * data;
+				param_number++;
+			}
+		}
+
+		for (size_t i = 0; i < net_critic->learnable_params().size(); i++)
+		{
+			for (size_t j = 0; j < net_critic->learnable_params()[i]->count(); j++)
+			{
+				float data = net_critic->learnable_params()[i]->cpu_data()[j];
 				norm += data * data;
 				param_number++;
 			}
 		}
 
 		norm = sqrt(norm) / param_number;
-		std::cout << "Mean L2 norm of the trainable layers of the net: " << norm << std::endl;
+		std::cout << "Mean L2 norm of the trainable layers of the nets: " << norm << std::endl;
 	}
 
 	UpdateTargetNets();
@@ -152,9 +165,9 @@ void NN_Agent::Train(const std::vector<std::vector<float>> &states, const std::v
 std::vector<std::vector<float> > NN_Agent::PredictActor(const std::vector<std::vector<float> > &state, bool target)
 {
 	//A vector of batch size vectors of action dim size
-	std::vector<std::vector<float> > prediction(target ? target_blob_action->num() : blob_action->num(), std::vector<float>(target ? target_blob_action->count() / target_blob_action->num() : blob_action->count() / blob_action->num(), 0.0f));
+	std::vector<std::vector<float> > prediction(target ? target_blob_action_actor->num() : blob_action_actor->num(), std::vector<float>(target ? target_blob_action_actor->count() / target_blob_action_actor->num() : blob_action_actor->count() / blob_action_actor->num(), 0.0f));
 
-	float* mutable_cpu_data = target ? target_blob_state->mutable_cpu_data() : blob_state->mutable_cpu_data();
+	float* mutable_cpu_data = target ? target_blob_state_actor->mutable_cpu_data() : blob_state_actor->mutable_cpu_data();
 	int index = 0;
 
 	for (size_t i = 0; i < state.size(); ++i)
@@ -166,9 +179,9 @@ std::vector<std::vector<float> > NN_Agent::PredictActor(const std::vector<std::v
 		}
 	}
 
-	target ? target_net->ForwardFromTo(0, last_layer_actor) : net->ForwardFromTo(0, last_layer_actor);
+	target ? target_net_actor->Forward() : net_actor->Forward();
 
-	const float* cpu_data = target ? target_blob_action->cpu_data() : blob_action->cpu_data();
+	const float* cpu_data = target ? target_blob_action_actor->cpu_data() : blob_action_actor->cpu_data();
 	index = 0;
 
 	//If the input batch was not full, we do not need to output the predictions for the whole batch
@@ -188,7 +201,7 @@ std::vector<float> NN_Agent::PredictCritic(const std::vector<std::vector<float> 
 {
 	std::vector<float> prediction(target ? target_blob_q->count() : blob_q->count());
 
-	float* mutable_cpu_data = target ? target_blob_state->mutable_cpu_data() : blob_state->mutable_cpu_data();
+	float* mutable_cpu_data = target ? target_blob_state_critic->mutable_cpu_data() : blob_state_critic->mutable_cpu_data();
 	int index = 0;
 
 	for (size_t i = 0; i < state.size(); ++i)
@@ -200,7 +213,7 @@ std::vector<float> NN_Agent::PredictCritic(const std::vector<std::vector<float> 
 		}
 	}
 
-	mutable_cpu_data = target ? target_blob_action->mutable_cpu_data() : blob_action->mutable_cpu_data();
+	mutable_cpu_data = target ? target_blob_action_critic->mutable_cpu_data() : blob_action_critic->mutable_cpu_data();
 	index = 0;
 
 	for (size_t i = 0; i < action.size(); ++i)
@@ -212,7 +225,7 @@ std::vector<float> NN_Agent::PredictCritic(const std::vector<std::vector<float> 
 		}
 	}
 
-	target ? target_net->ForwardFrom(last_layer_actor + 1) : net->ForwardFrom(last_layer_actor + 1);
+	target ? target_net_critic->Forward() : net_critic->Forward();
 
 	std::copy(target ? target_blob_q->cpu_data() : blob_q->cpu_data(), target ? target_blob_q->cpu_data() + target_blob_q->count() : blob_q->cpu_data() + blob_q->count(), prediction.data());
 
@@ -222,33 +235,35 @@ std::vector<float> NN_Agent::PredictCritic(const std::vector<std::vector<float> 
 void NN_Agent::TrainCritic(const std::vector<std::vector<float> > &state, const std::vector<std::vector<float> > &action, const std::vector<float>& y_i)
 {
 	//Reset all gradients to 0
-	net->ClearParamDiffs();
+	net_critic->ClearParamDiffs();
 
 	//Forward pass
 	std::copy(y_i.begin(), y_i.end(), blob_label_q->mutable_cpu_data());
 	PredictCritic(state, action, false);
 
-	//Backward pass on the critic part of the net
-	net->BackwardFromTo(net->layers().size() - 1, last_layer_actor + 1);
+	net_critic->Backward();
+	solver_critic->ApplyUpdate();
+	solver_critic->iter_++;
 
-	//Apply the gradients calculated during the backward pass (the actor weights are not updated cause their gradients is still 0)
-	solver->ApplyUpdate();
+	if (solver_critic->iter() > 0 && solver_critic->iter() % solver_critic->param().snapshot() == 0)
+	{
+		solver_critic->Snapshot();
+	}
 }
 
 std::vector<float> NN_Agent::GetCriticGradient(const std::vector<std::vector<float> > &state, const std::vector<std::vector<float> > &action)
 {
 	//Forward, set output gradient to '1', Backward, get gradient w.r.t. the action
-	net->ClearParamDiffs();
 	PredictCritic(state, action, false);
 
 	std::vector<float> ones = std::vector<float>(blob_q->count(), 1.0f);
 	std::copy(ones.begin(), ones.end(), blob_q->mutable_cpu_diff());
 
-	net->BackwardFromTo(net->layers().size() - 2, last_layer_actor + 1);
+	net_critic->BackwardFrom(net_critic->layers().size() - 2);
 
-	std::vector<float> output(blob_action->count());
+	std::vector<float> output(blob_action_critic->count());
 
-	std::copy(blob_action->cpu_diff(), blob_action->cpu_diff() + blob_action->count(), output.begin());
+	std::copy(blob_action_critic->cpu_diff(), blob_action_critic->cpu_diff() + blob_action_critic->count(), output.begin());
 
 	return output;
 }
@@ -256,24 +271,30 @@ std::vector<float> NN_Agent::GetCriticGradient(const std::vector<std::vector<flo
 void NN_Agent::TrainActor(const std::vector<std::vector<float> > &state, const std::vector<float>& grads)
 {
 	//Reset all the gradients to 0
-	net->ClearParamDiffs();
+	net_actor->ClearParamDiffs();
 	
 	//Forward pass
 	PredictActor(state, false);
 
 	//Set the gradients w.r.t. the actions
-	std::copy(grads.begin(), grads.end(), blob_action->mutable_cpu_diff());
+	std::copy(grads.begin(), grads.end(), blob_action_actor->mutable_cpu_diff());
 	
 	//Backward pass and update of the weights
-	net->BackwardFrom(last_layer_actor);
-	solver->ApplyUpdate();
+	net_actor->Backward();
+	solver_actor->ApplyUpdate();
+	solver_actor->iter_++;
+
+	if (solver_actor->iter() > 0 && solver_actor->iter() % solver_actor->param().snapshot() == 0)
+	{
+		solver_actor->Snapshot();
+	}
 }
 
 void NN_Agent::UpdateTargetNets()
 {
-	if (target_net)
+	if (target_net_actor)
 	{
-		std::vector<std::string> source_layers = net->layer_names();
+		std::vector<std::string> source_layers = net_actor->layer_names();
 
 		boost::shared_ptr<caffe::Layer<float> > src_layer;
 		boost::shared_ptr<caffe::Layer<float> > dst_layer;
@@ -283,8 +304,41 @@ void NN_Agent::UpdateTargetNets()
 
 		for (size_t i = 0; i < source_layers.size(); ++i)
 		{
-			src_layer = net->layer_by_name(source_layers[i]);
-			dst_layer = target_net->layer_by_name(source_layers[i]);
+			src_layer = net_actor->layer_by_name(source_layers[i]);
+			dst_layer = target_net_actor->layer_by_name(source_layers[i]);
+
+			//If the corresponding layer exists in the target net
+			//and if they have the same number of parameters
+			if (dst_layer != nullptr && src_layer->blobs().size() == dst_layer->blobs().size())
+			{
+				for (size_t j = 0; j < src_layer->blobs().size(); ++j)
+				{
+					src_blob = src_layer->blobs()[j];
+					dst_blob = dst_layer->blobs()[j];
+
+					if (src_blob->count() == dst_blob->count())
+					{
+						caffe::caffe_cpu_axpby(src_blob->count(), update_rate, src_blob->cpu_data(), 1.0f - update_rate, dst_blob->mutable_cpu_data());
+					}
+				}
+			}
+		}
+	}
+
+	if (target_net_critic)
+	{
+		std::vector<std::string> source_layers = net_critic->layer_names();
+
+		boost::shared_ptr<caffe::Layer<float> > src_layer;
+		boost::shared_ptr<caffe::Layer<float> > dst_layer;
+
+		boost::shared_ptr<caffe::Blob<float> > src_blob;
+		boost::shared_ptr<caffe::Blob<float> > dst_blob;
+
+		for (size_t i = 0; i < source_layers.size(); ++i)
+		{
+			src_layer = net_critic->layer_by_name(source_layers[i]);
+			dst_layer = target_net_critic->layer_by_name(source_layers[i]);
 
 			//If the corresponding layer exists in the target net
 			//and if they have the same number of parameters

@@ -25,7 +25,7 @@ To train a new agent, set the training parameters as you want and then launch `l
 ## Testing
 
 To test the performance of an agent, set the testing parameters and then launch `launch_files/test.bat`.
-A file with the weights of a trained agent is provided if you just want to see it in action: `launch_files/Trained_Model.caffemodel`.
+Files with the weights of a trained agent is provided if you just want to see it in action: `launch_files/Trained_Actor|Critic.caffemodel`.
 
 If you have set display parameter on, you should see something like this: 
 

@@ -14,28 +14,37 @@ DEFINE_int32(display, 0, "Whether we want to display the screen or not");
 DEFINE_int32(FPS, 2000, "Max number of images displayed per second when display is on. 0 to activate frame by frame mode.");
 
 //Training flags
-DEFINE_string(solver, "", "Caffe solver file");
+DEFINE_string(solver_actor, "solver_actor.prototxt", "Caffe solver file for actor net");
+DEFINE_string(solver_critic, "solver_critic.prototxt", "Caffe solver file for actor net");
 DEFINE_int32(memory_size, 100000, "Maximum size of the replay buffer");
-DEFINE_int32(noise_iter_decay, 100000, "Iteration used for noise intensity (intensity = (noise_iter_decay - current iter) / noise_iter_decay");
+DEFINE_int32(noise_iter_decay, 75000, "Iteration used for noise intensity (intensity = (noise_iter_decay - current iter) / noise_iter_decay");
 DEFINE_int32(batch_size, 24, "Number of samples in one training pass");
 DEFINE_string(log_file, "log.csv", "File to log during training");
 DEFINE_double(target_net_update_rate, 0.001, "Rate for soft update of the target net during training");
-DEFINE_double(gamma, 0.99, "Reward discount factor");
+DEFINE_double(gamma, 0.95, "Reward discount factor");
 DEFINE_int32(max_len_episode, 2000, "Maximum number of step in one episode (-1 to deactivate)");
-DEFINE_int32(num_episodes, 300, "Number of training episodes");
+DEFINE_int32(num_episodes, 500, "Number of training episodes");
 
 //Testing flags
-DEFINE_string(model, "", "Caffe prototxt to define net architecture");
-DEFINE_string(weights, "", "Trained weights to load into the net (.caffemodel)");
+DEFINE_string(model_actor, "", "Caffe prototxt to define actor net architecture");
+DEFINE_string(model_critic, "", "Caffe prototxt to define critic net architecture");
+DEFINE_string(weights_actor, "", "Trained weights to load into the actor net (.caffemodel)");
+DEFINE_string(weights_critic, "", "Trained weights to load into the critic net (.caffemodel)");
+DEFINE_int32(test_episode, 25, "Number of episode to test on");
 
 int main(int argc, char** argv)
 {
+	//Use that if you want to run on GPU, but for a simple net like this one,
+	//CPU is fast enough
+/*
 #ifdef CPU_ONLY
 	caffe::Caffe::set_mode(caffe::Caffe::CPU);
 #else
 	caffe::Caffe::set_mode(caffe::Caffe::GPU);
 #endif
+*/
 
+	caffe::Caffe::set_mode(caffe::Caffe::CPU);
 	gflags::ParseCommandLineFlags(&argc, &argv, true);
 	google::InitGoogleLogging(argv[0]);
 	
@@ -79,7 +88,7 @@ int main(int argc, char** argv)
 		std::vector<std::vector<float> > batch_states2(FLAGS_batch_size, std::vector<float>(2, 0.0f));
 
 		env = new Continuous_Mountain_Car(FLAGS_display, FLAGS_FPS);
-		agent = new NN_Agent(FLAGS_solver, FLAGS_target_net_update_rate, FLAGS_gamma);
+		agent = new NN_Agent(FLAGS_solver_actor, FLAGS_solver_critic, FLAGS_target_net_update_rate, FLAGS_gamma);
 		std::mt19937 random_gen = std::mt19937(std::chrono::high_resolution_clock::now().time_since_epoch().count());
 
 		Noise noise(env->ActionDim());
@@ -165,7 +174,7 @@ int main(int argc, char** argv)
 	else
 	{
 		env = new Continuous_Mountain_Car(FLAGS_display, FLAGS_FPS);
-		agent = new NN_Agent(FLAGS_model, FLAGS_weights);
+		agent = new NN_Agent(FLAGS_model_actor, FLAGS_model_critic, FLAGS_weights_actor, FLAGS_weights_critic);
 
 		state = std::vector<std::vector<float> >(1, std::vector<float>(env->StateDim(), 0.0f));
 		action = std::vector<float>(env->ActionDim(), 0.0f);
@@ -174,11 +183,11 @@ int main(int argc, char** argv)
 	float mean_reward = 0.0f;
 	float mean_length = 0.0f;
 	float max_reward = 0.0f;
-	int min_length = 0;
+	int min_length = FLAGS_max_len_episode;
 	float episode_reward = 0.0f;
 	int episode_length = 0;
 
-	for (int i = 0; i < 25; ++i)
+	for (int i = 0; i < FLAGS_test_episode; ++i)
 	{
 		while (true)
 		{
@@ -222,8 +231,8 @@ int main(int argc, char** argv)
 			}
 		}
 	}
-	mean_reward /= 25.0f;
-	mean_length /= 25.0f;
+	mean_reward /= FLAGS_test_episode;
+	mean_length /= FLAGS_test_episode;
 
 	std::cout << "Max reward: " << max_reward << std::endl;
 	std::cout << "Min length: " << min_length << " steps" << std::endl << std::endl;
